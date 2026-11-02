@@ -1,0 +1,7 @@
+services:
+  url-shortener:
+    image: url-shortener:v1
+    container_name: url-shortener-app
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
