@@ -13,7 +13,7 @@ on:
 
 jobs:
   build:
-    name: Build and Test
+    name: Build, Test and Dockerize
     runs-on: ubuntu-latest
 
     steps:
@@ -29,3 +29,13 @@ jobs:
 
       - name: Build with Maven
         run: mvn clean package
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: url-shortener:latest
