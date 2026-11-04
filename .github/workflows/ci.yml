@@ -1,5 +1,5 @@
 
-name: URL Shortener CI Pipeline
+name: URL Shortener CI/CD Pipeline
 
 on:
   push:
@@ -14,15 +14,13 @@ on:
 
 jobs:
   build:
-    name: Build, Test and Dockerize
+    name: Build, Test and Push Docker Image
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout source code
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Step 2: Set up Java 21
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
@@ -30,18 +28,59 @@ jobs:
           java-version: '21'
           cache: maven
 
-      # Step 3: Build application and run tests
       - name: Build with Maven
         run: mvn clean package
 
-      # Step 4: Set up Docker Buildx
+      - name: Configure AWS Credentials
+        if: github.event_name == 'push'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-2
+
+      - name: Login to Amazon ECR
+        if: github.event_name == 'push'
+        uses: aws-actions/amazon-ecr-login@v2
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Step 5: Build Docker image
-      - name: Build Docker Image
+      - name: Build and Push Docker Image
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: false
-          tags: url-shortener:latest
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            777164055184.dkr.ecr.ap-southeast-2.amazonaws.com/url-shortener:latest
+            777164055184.dkr.ecr.ap-southeast-2.amazonaws.com/url-shortener:${{ github.sha }}
+
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    needs: build
+
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Deploy Application
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            aws ecr get-login-password --region ap-southeast-2 | sudo docker login --username AWS --password-stdin 777164055184.dkr.ecr.ap-southeast-2.amazonaws.com
+
+            sudo docker pull 777164055184.dkr.ecr.ap-southeast-2.amazonaws.com/url-shortener:latest
+
+            sudo docker stop url-shortener-app || true
+            sudo docker rm url-shortener-app || true
+
+            sudo docker run -d \
+              --name url-shortener-app \
+              --restart unless-stopped \
+              -p 8080:8080 \
+              777164055184.dkr.ecr.ap-southeast-2.amazonaws.com/url-shortener:latest
+
+            sudo docker image prune -f
